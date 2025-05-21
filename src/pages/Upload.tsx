@@ -5,7 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import { assemblyAiService } from "@/lib/assemblyAiService";
 
 const supabase = createClient(
-  "https://czevtnxzdaxgkjvqeogf.supabase.co", 
+  "https://czevtnxzdaxgkjvqeogf.supabase.co", // substitua
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN6ZXZ0bnh6ZGF4Z2tqdnFlb2dmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDY4ODY5NzksImV4cCI6MjA2MjQ2Mjk3OX0.b1B_oJtSyfFmS2jv7v2w8FjdFNFkcR2J3-JSmGeanCk" 
 );
 

@@ -16,7 +16,7 @@ export interface TranscriptionResult {
   subtitlesUrl?: string;
 }
 
-const ASSEMBLY_AI_API_KEY = "9bfdbacc416c429bb159c9caa1ffc5c2";
+const ASSEMBLY_AI_API_KEY = "9bfdbacc416c429bb159c9caa1ffc5c2"; // Substitua pela sua chave real
 
 const BASE_URL = "https://api.assemblyai.com/v2";
 
@@ -123,6 +123,3 @@ export const assemblyAiService = {
     return new Blob([text], { type: "text/plain" });
   },
 };
-
-
-
