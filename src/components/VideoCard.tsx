@@ -1,11 +1,14 @@
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
+import { useToast } from "@/hooks/use-toast";
+import { assemblyAiService } from "@/services/assemblyAiService";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useRef, useState, useEffect } from "react";
 
 interface VideoCardProps {
   id: string;
@@ -17,7 +20,8 @@ interface VideoCardProps {
   language: string;
   targetLanguage?: string;
   type: 'subtitle' | 'dubbing' | 'translation';
-  videoUrl?: string; // Adicionado campo para URL do vídeo
+  videoUrl?: string;
+  subtitlesUrl?: string;
 }
 
 export default function VideoCard({
@@ -30,8 +34,112 @@ export default function VideoCard({
   language,
   targetLanguage,
   type,
-  videoUrl
+  videoUrl,
+  subtitlesUrl
 }: VideoCardProps) {
+  const { toast } = useToast();
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [subtitlesLoaded, setSubtitlesLoaded] = useState(false);
+  const [loadingSubtitles, setLoadingSubtitles] = useState(false);
+  
+  // Verificar quando as legendas são carregadas
+  useEffect(() => {
+    if (!videoRef.current || !subtitlesUrl) return;
+    
+    const loadSubtitles = () => {
+      if (!videoRef.current) return;
+      setLoadingSubtitles(true);
+      
+      // Garantir que o elemento de vídeo tenha sido carregado
+      if (videoRef.current.readyState < 1) {
+        videoRef.current.addEventListener('loadedmetadata', setupTextTracks, { once: true });
+      } else {
+        setupTextTracks();
+      }
+    };
+    
+    const setupTextTracks = () => {
+      if (!videoRef.current) return;
+      
+      // Remover todas as faixas existentes para evitar duplicações
+      while (videoRef.current.textTracks.length > 0) {
+        const track = videoRef.current.textTracks[0];
+        if (track && 'remove' in track) {
+          // @ts-ignore - Alguns navegadores suportam remove()
+          track.remove();
+        }
+      }
+      
+      // Certificar de que todas as faixas existentes estão desativadas
+      for (let i = 0; i < videoRef.current.textTracks.length; i++) {
+        videoRef.current.textTracks[i].mode = 'disabled';
+      }
+      
+      // Criar e adicionar uma nova faixa de texto
+      const track = document.createElement('track');
+      track.kind = 'subtitles';
+      track.label = 'Português';
+      track.srcLang = 'pt-BR';
+      track.src = subtitlesUrl + '?v=' + new Date().getTime(); // Evitar cache
+      track.default = true;
+      
+      // Adicionar evento de carregamento à faixa
+      track.addEventListener('load', () => {
+        console.log("Faixa de legendas carregada com sucesso");
+        setSubtitlesLoaded(true);
+        setLoadingSubtitles(false);
+      });
+      
+      // Adicionar evento de erro à faixa
+      track.addEventListener('error', (e) => {
+        console.error("Erro ao carregar as legendas:", e);
+        setLoadingSubtitles(false);
+      });
+      
+      videoRef.current.appendChild(track);
+      
+      // Ativar a faixa após adicioná-la
+      setTimeout(() => {
+        if (videoRef.current && videoRef.current.textTracks.length > 0) {
+          videoRef.current.textTracks[0].mode = 'showing';
+        }
+      }, 100);
+    };
+    
+    loadSubtitles();
+    
+    return () => {
+      if (videoRef.current) {
+        videoRef.current.removeEventListener('loadedmetadata', setupTextTracks);
+      }
+    };
+  }, [videoUrl, subtitlesUrl]);
+  
+  // Verificar se as legendas estão sendo exibidas através dos eventos cuechange
+  useEffect(() => {
+    if (!videoRef.current || !isPlaying) return;
+    
+    const handleCueChange = () => {
+      if (videoRef.current && videoRef.current.textTracks && videoRef.current.textTracks.length > 0) {
+        const track = videoRef.current.textTracks[0];
+        if (track.activeCues && track.activeCues.length > 0) {
+          setSubtitlesLoaded(true);
+          setLoadingSubtitles(false);
+        }
+      }
+    };
+    
+    if (videoRef.current.textTracks && videoRef.current.textTracks.length > 0) {
+      const track = videoRef.current.textTracks[0];
+      track.addEventListener('cuechange', handleCueChange);
+      
+      return () => {
+        track.removeEventListener('cuechange', handleCueChange);
+      };
+    }
+  }, [isPlaying]);
+  
   const getStatusColor = () => {
     switch (status) {
       case 'processing':
@@ -71,12 +179,87 @@ export default function VideoCard({
     }
   };
 
+  // Usar um vídeo de exemplo garantido se não tiver thumbnail
   const defaultThumbnail = "https://via.placeholder.com/320x180.png?text=Vídeo+sem+thumbnail";
 
-  // Função para download de vídeo (poderia ser movida para um utilitário)
+  // Função para download de vídeo com feedback visual
   const handleDownload = async (type: string) => {
-    // A implementação real seria feita com o serviço assemblyAiService
-    alert(`Função de download de ${type} será implementada em breve.`);
+    toast({
+      title: `Download iniciado`,
+      description: `Preparando ${type} para download...`,
+    });
+    
+    try {
+      let blob: Blob;
+      let filename: string;
+      
+      switch (type) {
+        case 'vídeo':
+          blob = await assemblyAiService.downloadVideo(id);
+          filename = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.mp4`;
+          break;
+        case 'legenda':
+          blob = await assemblyAiService.downloadSubtitles(id);
+          filename = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.srt`;
+          break;
+        case 'áudio':
+          blob = await assemblyAiService.downloadAudio(id);
+          filename = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.mp3`;
+          break;
+        default:
+          throw new Error(`Tipo de download não suportado: ${type}`);
+      }
+      
+      // Criar URL para download
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      
+      // Limpar recursos
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 100);
+      
+      toast({
+        title: "Download concluído!",
+        description: `O arquivo ${filename} foi baixado com sucesso.`,
+      });
+    } catch (error) {
+      console.error(`Erro ao baixar ${type}:`, error);
+      toast({
+        title: "Erro no download",
+        description: `Não foi possível baixar o ${type}. Tente novamente.`,
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Função para controlar o preview do vídeo
+  const handleTogglePreview = () => {
+    if (videoRef.current) {
+      if (isPlaying) {
+        videoRef.current.pause();
+      } else {
+        // Se iniciar a reprodução, verificar se as legendas estão carregadas
+        if (!subtitlesLoaded) {
+          setLoadingSubtitles(true);
+        }
+        
+        videoRef.current.play().catch(err => {
+          console.error("Erro ao reproduzir vídeo:", err);
+          toast({
+            title: "Erro ao reproduzir",
+            description: "Não foi possível iniciar a reprodução do vídeo.",
+            variant: "destructive"
+          });
+        });
+      }
+      setIsPlaying(!isPlaying);
+    }
   };
 
   return (
@@ -84,14 +267,55 @@ export default function VideoCard({
       <div className="flex flex-col sm:flex-row gap-4">
         <div className="flex-shrink-0">
           <div className="relative w-full sm:w-40 h-24 rounded-md overflow-hidden bg-gray-100">
-            <img 
-              src={thumbnail || defaultThumbnail} 
-              alt={title} 
-              className="w-full h-full object-cover"
-            />
+            {videoUrl && status === 'ready' ? (
+              <video 
+                ref={videoRef}
+                src={videoUrl}
+                poster={thumbnail || defaultThumbnail}
+                className="w-full h-full object-cover"
+                preload="metadata"
+                onClick={handleTogglePreview}
+                style={{ cursor: 'pointer' }}
+                crossOrigin="anonymous"
+              />
+            ) : (
+              <img 
+                src={thumbnail || defaultThumbnail} 
+                alt={title} 
+                className="w-full h-full object-cover"
+              />
+            )}
             <span className="absolute bottom-1 right-1 bg-black bg-opacity-75 text-white text-xs px-1 py-0.5 rounded">
               {duration}
             </span>
+            
+            {/* Play/Pause overlay */}
+            {videoUrl && status === 'ready' && (
+              <div 
+                className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-30 hover:bg-opacity-50 transition-opacity"
+                onClick={handleTogglePreview}
+              >
+                <div className="text-white bg-black bg-opacity-50 rounded-full p-1">
+                  {isPlaying ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="6" y="4" width="4" height="16"></rect>
+                      <rect x="14" y="4" width="4" height="16"></rect>
+                    </svg>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                    </svg>
+                  )}
+                </div>
+              </div>
+            )}
+            
+            {/* Subtitle status indicator */}
+            {videoUrl && status === 'ready' && isPlaying && loadingSubtitles && (
+              <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white text-xs p-1 text-center">
+                Carregando legendas...
+              </div>
+            )}
           </div>
         </div>
         

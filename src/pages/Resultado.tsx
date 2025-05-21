@@ -12,6 +12,9 @@ export default function Result() {
   const { toast } = useToast();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [copied, setCopied] = useState(false);
+  const [videoLoaded, setVideoLoaded] = useState(false);
+  const [subtitlesLoaded, setSubtitlesLoaded] = useState(false);
+  const [loadingSubtitles, setLoadingSubtitles] = useState(false);
   const [videoInfo, setVideoInfo] = useState({
     id: id || "",
     title: "Carregando...",
@@ -23,50 +26,191 @@ export default function Result() {
     processedDate: "Carregando...",
     videoUrl: "",
     thumbnailUrl: "https://via.placeholder.com/1280x720.png?text=Carregando...",
+    subtitlesUrl: "/sample-subtitles-pt.vtt",
   });
   
   // Carregar informações do vídeo
   useEffect(() => {
     if (!id) return;
     
-    // Buscar os dados do vídeo no localStorage
-    const savedVideos = localStorage.getItem("userVideos");
-    if (savedVideos) {
-      const videos = JSON.parse(savedVideos);
-      const video = videos.find(v => v.id === id);
-      
-      if (video) {
-        setVideoInfo({
-          id: id,
-          title: video.title || "Vídeo sem título",
-          originalLanguage: video.language || "Português (Brasil)",
-          targetLanguage: video.targetLanguage || "Inglês (EUA)",
-          serviceType: video.type === "subtitle" ? "Legendagem" : 
-                       video.type === "dubbing" ? "Dublagem" : "Tradução",
-          duration: video.duration || "0:00",
-          processingTime: "2 minutos",
-          processedDate: video.date || "Sem data",
-          videoUrl: video.videoUrl || "https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4",
-          thumbnailUrl: video.thumbnail || "https://via.placeholder.com/1280x720.png?text=Sem+Thumbnail",
-        });
-      }
-    }
-    
-    // Também podemos buscar no serviço para confirmação
+    // Buscar os dados do vídeo no localStorage e no serviço
     assemblyAiService.getTranscriptionStatus(id)
       .then(result => {
-        if (result.status === 'completed' && result.videoUrl) {
+        if (result.status === 'completed') {
+          // Primeiro atualizar com dados do serviço
           setVideoInfo(prev => ({
             ...prev,
-            videoUrl: result.videoUrl
+            videoUrl: result.videoUrl || prev.videoUrl,
+            subtitlesUrl: result.subtitlesUrl || "/sample-subtitles-pt.vtt?v=" + Date.now() // Evitar cache
           }));
+          
+          // Depois complementar com dados do localStorage
+          const savedVideos = localStorage.getItem("userVideos");
+          if (savedVideos) {
+            const videos = JSON.parse(savedVideos);
+            const video = videos.find(v => v.id === id);
+            
+            if (video) {
+              // Verificar se temos uma URL de objeto armazenada na sessão
+              const storedUrls = JSON.parse(sessionStorage.getItem('videoObjectUrls') || '{}');
+              const storedVideoUrl = storedUrls[id];
+              
+              // Usar URL armazenada se disponível, senão usar a URL do vídeo
+              const finalVideoUrl = video.videoUrl || storedVideoUrl;
+              
+              setVideoInfo(prev => ({
+                ...prev,
+                title: video.title || "Vídeo sem título",
+                originalLanguage: video.language || "Português (Brasil)",
+                targetLanguage: video.targetLanguage || "Inglês (EUA)",
+                serviceType: video.type === "subtitle" ? "Legendagem" : 
+                            video.type === "dubbing" ? "Dublagem" : "Tradução",
+                duration: video.duration || "0:00",
+                processedDate: video.date || "Sem data",
+                thumbnailUrl: video.thumbnail || "https://via.placeholder.com/1280x720.png?text=Sem+Thumbnail",
+                videoUrl: finalVideoUrl,
+              }));
+            }
+          }
         }
       })
       .catch(error => {
         console.error("Erro ao buscar status da transcrição:", error);
+        toast({
+          title: "Erro ao carregar vídeo",
+          description: "Não foi possível obter as informações do vídeo. Tente novamente.",
+          variant: "destructive",
+        });
       });
-  }, [id]);
+  }, [id, toast]);
 
+  // Configurar as legendas quando o vídeo for carregado
+  useEffect(() => {
+    if (!videoRef.current || !videoInfo.subtitlesUrl) return;
+    
+    const loadSubtitles = () => {
+      if (!videoRef.current) return;
+      setLoadingSubtitles(true);
+      
+      // Garantir que o elemento de vídeo tenha sido carregado
+      if (videoRef.current.readyState < 1) {
+        videoRef.current.addEventListener('loadedmetadata', setupTextTracks, { once: true });
+      } else {
+        setupTextTracks();
+      }
+    };
+    
+    const setupTextTracks = () => {
+      if (!videoRef.current) return;
+      
+      // Remover todas as faixas existentes para evitar duplicações
+      while (videoRef.current.textTracks.length > 0) {
+        const track = videoRef.current.textTracks[0];
+        if (track && 'remove' in track) {
+          // @ts-ignore - Alguns navegadores suportam remove()
+          track.remove();
+        }
+      }
+      
+      // Certificar de que todas as faixas existentes estão desativadas
+      for (let i = 0; i < videoRef.current.textTracks.length; i++) {
+        videoRef.current.textTracks[i].mode = 'disabled';
+      }
+      
+      // Criar e adicionar uma nova faixa de texto
+      const track = document.createElement('track');
+      track.kind = 'subtitles';
+      track.label = 'Português';
+      track.srcLang = 'pt-BR';
+      track.src = videoInfo.subtitlesUrl + '?v=' + new Date().getTime(); // Evitar cache
+      track.default = true;
+      
+      // Adicionar evento de carregamento à faixa
+      track.addEventListener('load', () => {
+        console.log("Faixa de legendas carregada com sucesso");
+        setSubtitlesLoaded(true);
+        setLoadingSubtitles(false);
+      });
+      
+      // Adicionar evento de erro à faixa
+      track.addEventListener('error', (e) => {
+        console.error("Erro ao carregar as legendas:", e);
+        setLoadingSubtitles(false);
+      });
+      
+      videoRef.current.appendChild(track);
+      
+      // Ativar a faixa após adicioná-la
+      setTimeout(() => {
+        if (videoRef.current && videoRef.current.textTracks.length > 0) {
+          videoRef.current.textTracks[0].mode = 'showing';
+        }
+      }, 100);
+    };
+    
+    loadSubtitles();
+    
+    return () => {
+      if (videoRef.current) {
+        videoRef.current.removeEventListener('loadedmetadata', setupTextTracks);
+      }
+    };
+  }, [videoInfo.videoUrl, videoInfo.subtitlesUrl]);
+  
+  // Verificar se as legendas estão sendo exibidas através dos eventos cuechange
+  useEffect(() => {
+    if (!videoRef.current) return;
+    
+    const handleCueChange = () => {
+      if (videoRef.current && videoRef.current.textTracks && videoRef.current.textTracks.length > 0) {
+        const track = videoRef.current.textTracks[0];
+        if (track.activeCues && track.activeCues.length > 0) {
+          const cue = track.activeCues[0] as VTTCue;
+          console.log("Legendas ativas:", cue.text);
+          setSubtitlesLoaded(true);
+          setLoadingSubtitles(false);
+        }
+      }
+    };
+    
+    const handleVideoLoaded = () => {
+      console.log("Vídeo carregado com sucesso");
+      setVideoLoaded(true);
+      
+      // Verificar legendas após o carregamento do vídeo
+      if (videoRef.current && videoRef.current.textTracks && videoRef.current.textTracks.length > 0) {
+        const track = videoRef.current.textTracks[0];
+        track.mode = 'showing';
+        
+        // Verificar se já tem legendas carregadas
+        if (track.cues && track.cues.length > 0) {
+          setSubtitlesLoaded(true);
+          setLoadingSubtitles(false);
+        } else {
+          setLoadingSubtitles(true);
+        }
+      }
+    };
+    
+    // Registrar event listeners para o vídeo
+    videoRef.current.addEventListener('loadeddata', handleVideoLoaded);
+    
+    // Registrar event listeners para legendas se existirem
+    if (videoRef.current.textTracks && videoRef.current.textTracks.length > 0) {
+      const track = videoRef.current.textTracks[0];
+      track.addEventListener('cuechange', handleCueChange);
+      
+      return () => {
+        track.removeEventListener('cuechange', handleCueChange);
+        videoRef.current?.removeEventListener('loadeddata', handleVideoLoaded);
+      };
+    }
+    
+    return () => {
+      videoRef.current?.removeEventListener('loadeddata', handleVideoLoaded);
+    };
+  }, [videoInfo.videoUrl]);
+  
   // Código de incorporação para compartilhamento
   const embedCode = `<iframe src="https://dubsubai.com/embed/${id}" width="560" height="315" frameborder="0" allowfullscreen></iframe>`;
 
@@ -199,20 +343,22 @@ export default function Result() {
                   className="absolute top-0 left-0 w-full h-full"
                   controls
                   poster={videoInfo.thumbnailUrl}
+                  crossOrigin="anonymous"
+                  preload="auto"
                 >
                   <source src={videoInfo.videoUrl} type="video/mp4" />
-                  <track 
-                    kind="subtitles" 
-                    src="/sample-subtitles-en.vtt" 
-                    label="English" 
-                    srcLang="en" 
-                    default 
-                  />
                   Seu navegador não suporta a reprodução de vídeos.
                 </video>
               ) : (
                 <div className="absolute top-0 left-0 w-full h-full flex items-center justify-center bg-gray-800 text-white">
                   Carregando vídeo...
+                </div>
+              )}
+              
+              {/* Status da legenda */}
+              {videoLoaded && loadingSubtitles && (
+                <div className="absolute bottom-4 left-4 bg-yellow-600 text-white px-3 py-1 rounded-md text-sm">
+                  Carregando legendas...
                 </div>
               )}
             </div>
