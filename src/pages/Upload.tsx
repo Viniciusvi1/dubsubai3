@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { assemblyAiService } from "@/lib/assemblyAiService";
+import { assemblyAiService } from "@/services/assemblyAiService";
 
 const supabase = createClient(
   "https://czevtnxzdaxgkjvqeogf.supabase.co", // substitua
