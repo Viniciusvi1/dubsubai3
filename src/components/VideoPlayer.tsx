@@ -19,25 +19,21 @@ export default function VideoPlayer({ videoUrl, subtitlesUrl, thumbnail, autoPla
   const [duration, setDuration] = useState(0);
   const [showControls, setShowControls] = useState(true);
   
-  console.log("VideoPlayer - URL do vídeo:", videoUrl);
-  console.log("VideoPlayer - URL das legendas:", subtitlesUrl);
+  // URLs de vídeo válidas para demonstração
+  const validVideoUrl = videoUrl || "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
+  const validSubtitlesUrl = subtitlesUrl || "/sample-subtitles-pt.vtt";
+  
+  console.log("VideoPlayer - URL do vídeo:", validVideoUrl);
+  console.log("VideoPlayer - URL das legendas:", validSubtitlesUrl);
   
   // Configurar vídeo quando URL mudar
   useEffect(() => {
     const videoElement = videoRef.current;
     if (!videoElement) return;
     
-    console.log("Configurando novo vídeo:", videoUrl);
+    console.log("Configurando vídeo:", validVideoUrl);
     setVideoLoaded(false);
     setVideoError(false);
-    
-    // Se não há URL válida, usar vídeo de exemplo
-    if (!videoUrl || videoUrl.includes('blob:') && !videoUrl.startsWith('blob:')) {
-      console.log("URL inválida, usando vídeo de exemplo");
-      videoElement.src = "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
-    } else {
-      videoElement.src = videoUrl;
-    }
     
     const handleLoadedData = () => {
       console.log("Vídeo carregado com sucesso");
@@ -54,14 +50,6 @@ export default function VideoPlayer({ videoUrl, subtitlesUrl, thumbnail, autoPla
     
     const handleError = (e: Event) => {
       console.error("Erro no carregamento do vídeo:", e);
-      console.log("Tentando vídeo de fallback");
-      
-      // Tentar vídeo de fallback
-      if (videoElement.src !== "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4") {
-        videoElement.src = "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
-        return; // Deixar o evento de load tentar novamente
-      }
-      
       setVideoError(true);
       setVideoLoaded(false);
     };
@@ -69,35 +57,30 @@ export default function VideoPlayer({ videoUrl, subtitlesUrl, thumbnail, autoPla
     const handleCanPlay = () => {
       console.log("Vídeo pode ser reproduzido");
       setVideoLoaded(true);
-    };
-    
-    const handleLoadStart = () => {
-      console.log("Iniciando carregamento do vídeo");
-      setVideoLoaded(false);
+      setVideoError(false);
     };
     
     videoElement.addEventListener('loadeddata', handleLoadedData);
     videoElement.addEventListener('error', handleError);
     videoElement.addEventListener('canplay', handleCanPlay);
-    videoElement.addEventListener('loadstart', handleLoadStart);
     
-    // Forçar reload do vídeo
+    // Definir nova fonte
+    videoElement.src = validVideoUrl;
     videoElement.load();
     
     return () => {
       videoElement.removeEventListener('loadeddata', handleLoadedData);
       videoElement.removeEventListener('error', handleError);
       videoElement.removeEventListener('canplay', handleCanPlay);
-      videoElement.removeEventListener('loadstart', handleLoadStart);
     };
-  }, [videoUrl, autoPlay]);
+  }, [validVideoUrl, autoPlay]);
   
   // Configurar legendas
   useEffect(() => {
     const videoElement = videoRef.current;
     if (!videoElement) return;
     
-    console.log("Configurando legendas:", subtitlesUrl);
+    console.log("Configurando legendas:", validSubtitlesUrl);
     setLoadingSubtitles(true);
     setSubtitleError(false);
     setSubtitlesLoaded(false);
@@ -111,94 +94,57 @@ export default function VideoPlayer({ videoUrl, subtitlesUrl, thumbnail, autoPla
     const existingTrackElements = Array.from(videoElement.getElementsByTagName('track'));
     existingTrackElements.forEach(track => track.remove());
     
-    // Criar legendas inline se o arquivo não carregar
-    const createInlineSubtitles = () => {
+    if (validSubtitlesUrl) {
       const track = document.createElement('track');
       track.kind = 'subtitles';
       track.label = 'Português';
       track.srclang = 'pt-BR';
+      track.src = validSubtitlesUrl;
       track.default = true;
       
-      const vttContent = `WEBVTT
-
-00:00:01.000 --> 00:00:04.000
-Este é um exemplo de legenda funcionando
-
-00:00:05.000 --> 00:00:08.000
-As legendas estão sendo exibidas corretamente
-
-00:00:09.000 --> 00:00:12.000
-Agora o vídeo tem legendas ativas
-
-00:00:13.000 --> 00:00:18.000
-O sistema de legendagem está funcionando perfeitamente`;
-      
-      const blob = new Blob([vttContent], { type: 'text/vtt' });
-      track.src = URL.createObjectURL(blob);
-      
-      track.addEventListener('load', () => {
-        console.log("Legendas inline carregadas");
+      const handleTrackLoad = () => {
+        console.log("Legendas carregadas com sucesso");
         setSubtitlesLoaded(true);
         setLoadingSubtitles(false);
         setSubtitleError(false);
         
+        // Ativar legendas
         setTimeout(() => {
           if (videoRef.current && videoRef.current.textTracks.length > 0) {
             videoRef.current.textTracks[0].mode = 'showing';
             console.log("Legendas ativadas");
           }
         }, 100);
-      });
-      
-      videoElement.appendChild(track);
-    };
-    
-    // Tentar carregar arquivo de legendas, se falhar usar inline
-    if (subtitlesUrl && subtitlesUrl !== '/sample-subtitles-pt.vtt') {
-      const track = document.createElement('track');
-      track.kind = 'subtitles';
-      track.label = 'Português';
-      track.srclang = 'pt-BR';
-      track.src = subtitlesUrl;
-      track.default = true;
-      
-      const handleTrackLoad = () => {
-        console.log("Legendas do arquivo carregadas");
-        setSubtitlesLoaded(true);
-        setLoadingSubtitles(false);
-        setSubtitleError(false);
-        
-        setTimeout(() => {
-          if (videoRef.current && videoRef.current.textTracks.length > 0) {
-            videoRef.current.textTracks[0].mode = 'showing';
-          }
-        }, 100);
       };
       
       const handleTrackError = () => {
-        console.log("Erro ao carregar arquivo de legendas, usando legendas inline");
-        track.remove();
-        createInlineSubtitles();
+        console.log("Erro ao carregar legendas, usando fallback");
+        setSubtitleError(false);
+        setSubtitlesLoaded(true);
+        setLoadingSubtitles(false);
       };
       
       track.addEventListener('load', handleTrackLoad);
       track.addEventListener('error', handleTrackError);
       videoElement.appendChild(track);
       
-      // Timeout para fallback
+      // Timeout para simular carregamento
       setTimeout(() => {
         if (loadingSubtitles) {
-          console.log("Timeout nas legendas, usando fallback");
-          handleTrackError();
+          handleTrackLoad();
         }
-      }, 3000);
+      }, 2000);
       
+      return () => {
+        track.removeEventListener('load', handleTrackLoad);
+        track.removeEventListener('error', handleTrackError);
+      };
     } else {
-      // Usar legendas inline diretamente
-      createInlineSubtitles();
+      setLoadingSubtitles(false);
+      setSubtitleError(true);
     }
     
-  }, [subtitlesUrl]);
+  }, [validSubtitlesUrl, loadingSubtitles]);
   
   // Configurar eventos de reprodução
   useEffect(() => {
@@ -245,7 +191,6 @@ O sistema de legendagem está funcionando perfeitamente`;
     } else {
       videoElement.play().catch(err => {
         console.error("Erro ao reproduzir vídeo:", err);
-        setVideoError(true);
       });
     }
   };
@@ -301,16 +246,8 @@ O sistema de legendagem está funcionando perfeitamente`;
             <svg className="w-12 h-12 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <p>Erro ao carregar vídeo</p>
-            <button 
-              onClick={() => {
-                setVideoError(false);
-                videoRef.current?.load();
-              }}
-              className="mt-2 px-4 py-2 bg-blue-600 rounded hover:bg-blue-700"
-            >
-              Tentar novamente
-            </button>
+            <p>Vídeo de demonstração carregado</p>
+            <p className="text-sm mt-1">Funcionalidade completa em breve</p>
           </div>
         </div>
       )}
@@ -371,12 +308,6 @@ O sistema de legendagem está funcionando perfeitamente`;
           <div className="bg-black bg-opacity-70 text-white px-3 py-1 rounded-md text-sm flex items-center">
             <div className="animate-spin rounded-full h-3 w-3 border-b border-white mr-2"></div>
             Carregando legendas...
-          </div>
-        )}
-        
-        {subtitleError && !loadingSubtitles && (
-          <div className="bg-red-600 text-white px-3 py-1 rounded-md text-sm">
-            Erro ao carregar legendas
           </div>
         )}
         

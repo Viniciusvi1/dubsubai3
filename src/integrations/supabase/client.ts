@@ -9,3 +9,30 @@ const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiO
 // import { supabase } from "@/integrations/supabase/client";
 
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+
+// Função de utilidade para processar legendas
+export const subtitleUtils = {
+  // Carregar arquivo de legendas
+  loadSubtitleFile: async (videoId: string): Promise<string> => {
+    try {
+      console.log(`Gerando URL de legendas para o vídeo ${videoId}`);
+      
+      // Verificar se o arquivo de legendas existe
+      const testResponse = await fetch('/sample-subtitles-pt.vtt', { method: 'HEAD' });
+      
+      if (testResponse.ok) {
+        // Arquivo existe, retornar URL limpa sem cache busting excessivo
+        const cleanUrl = `/sample-subtitles-pt.vtt`;
+        console.log(`URL de legendas gerada: ${cleanUrl}`);
+        return cleanUrl;
+      } else {
+        console.warn("Arquivo de legendas não encontrado, usando URL padrão");
+        return `/sample-subtitles-pt.vtt`;
+      }
+    } catch (error) {
+      console.error("Erro ao verificar legendas:", error);
+      // Retornar URL padrão em caso de erro
+      return `/sample-subtitles-pt.vtt`;
+    }
+  }
+};

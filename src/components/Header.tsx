@@ -8,7 +8,7 @@ export default function Header() {
   return (
     <header className="bg-blue-600 text-white p-4 shadow-md">
       <div className="max-w-6xl mx-auto flex justify-between items-center">
-        <h1 className="text-2xl font-bold">DubSubAI</h1>
+        <Link to="/" className="text-2xl font-bold">DubSubAI</Link>
         <nav className="space-x-4">
           <Link to="/" className="hover:underline">Início</Link>
           <Link to="/funcionalidades" className="hover:underline">Funcionalidades</Link>
